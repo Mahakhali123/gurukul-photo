@@ -111,7 +111,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
 
           {!loading && query.trim() === '' && (
             <div className="py-10 text-center">
-              <p className="text-sm font-semibold text-slate-700">Quick Search across G-Arts</p>
+              <p className="text-sm font-semibold text-slate-700">Quick Search across Gurukul</p>
               <p className="text-xs text-slate-400 mt-1">
                 Type keywords like &quot;Annual Day&quot;, &quot;Sports&quot;, &quot;Science&quot;, or &quot;Yoga&quot;
               </p>

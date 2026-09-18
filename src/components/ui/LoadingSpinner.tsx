@@ -14,23 +14,25 @@ export function LoadingSpinner({ label = 'Loading photos...', size = 'md' }: Loa
   };
 
   return (
-    <div className="flex flex-col items-center justify-center py-16 px-4 space-y-3">
-      <Loader2 className={`${sizeClasses[size]} animate-spin text-[#17171c]`} />
-      {label && <p className="text-[14px] text-[#616161] animate-pulse">{label}</p>}
+    <div className="flex flex-col items-center justify-center px-4 py-16">
+      <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[#fff7ed] ring-1 ring-[#fed7aa]">
+        <Loader2 className={`${sizeClasses[size]} animate-spin text-[#ea580c]`} />
+      </span>
+      {label && <p className="mt-4 animate-pulse text-[14px] font-medium text-[#64748b]">{label}</p>}
     </div>
   );
 }
 
 export function PhotoSkeletonGrid({ count = 8 }: { count?: number }) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
       {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}
-          className="rounded-2xl overflow-hidden bg-slate-200/80 animate-pulse aspect-[4/3] flex flex-col justify-end p-3"
+          className="flex aspect-[4/3] animate-pulse flex-col justify-end overflow-hidden rounded-[20px] bg-[#f1f5f9] p-3"
         >
-          <div className="h-4 bg-slate-300 rounded w-3/4 mb-1.5" />
-          <div className="h-3 bg-slate-300 rounded w-1/2" />
+          <div className="mb-1.5 h-4 w-3/4 rounded bg-[#e2e8f0]" />
+          <div className="h-3 w-1/2 rounded bg-[#e2e8f0]" />
         </div>
       ))}
     </div>

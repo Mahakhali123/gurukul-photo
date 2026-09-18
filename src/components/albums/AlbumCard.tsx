@@ -2,7 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Music } from 'lucide-react';
+import { Music, ArrowRight, CalendarDays } from 'lucide-react';
 import { Album } from '@/types';
 
 interface AlbumCardProps {
@@ -23,59 +23,75 @@ export function AlbumCard({ album }: AlbumCardProps) {
   return (
     <Link
       href={`/albums/${album.id}`}
-      className="group flex flex-col rounded-[8px] bg-white border border-[#f2f2f2] hover:border-[#d9d9dd] overflow-hidden transition-all duration-200"
+      className="inst-card group flex flex-col relative overflow-hidden bg-white rounded-xl transition-all duration-300 ease-out hover:-translate-y-1.5 hover:shadow-[0_12px_40px_-12px_rgba(234,88,12,0.25)] hover:ring-1 hover:ring-[#ea580c]/30"
+      style={{ transformStyle: 'preserve-3d', perspective: '1000px' }}
     >
-      <div className="relative aspect-[1.25] bg-[#eeece7] overflow-hidden">
+      <div className="relative aspect-[16/10] overflow-hidden bg-[#fff7ed]">
         {isAudioOnly ? (
-          <div className="w-full h-full flex flex-col items-center justify-center bg-[#17171c] text-white">
-            <span className="w-12 h-12 rounded-full bg-white/10 border border-white/20 flex items-center justify-center">
-              <Music className="w-6 h-6 text-white" />
+          <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-[#16294d] to-[#0f1e3a] text-white transition-transform duration-700 ease-out group-hover:scale-[1.06]">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#ea580c] shadow-lg shadow-[#ea580c]/20">
+              <Music className="h-6 w-6 text-white" />
             </span>
-            <span className="mt-2 text-[12px] font-medium">{audioCount} {audioCount === 1 ? 'audio' : 'audios'}</span>
+            <span className="mt-2 text-[12px] font-semibold">{audioCount} {audioCount === 1 ? 'audio' : 'audios'}</span>
           </div>
         ) : (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img
-          src={coverUrl}
-          alt={displayName}
-          title={displayName}
-          referrerPolicy="no-referrer"
-          onError={(e) => {
-            const target = e.target as HTMLImageElement;
-            if (target.src !== fallbackCover) {
-              target.src = fallbackCover;
-            }
-          }}
-          className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500"
-        />
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={coverUrl}
+            alt={displayName}
+            title={displayName}
+            referrerPolicy="no-referrer"
+            loading="lazy"
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              if (target.src !== fallbackCover) {
+                target.src = fallbackCover;
+              }
+            }}
+            className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.06]"
+          />
         )}
-        {!isGTL && <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/35 to-transparent pointer-events-none" />}
-        <span className="absolute top-3 right-3 text-[11px] leading-none font-medium px-2.5 py-1.5 rounded-full bg-white/90 text-[#17171c] backdrop-blur">
-          {totalItems} {totalItems === 1 ? 'item' : 'items'}
+        
+        {/* Taller, smoother gradient overlay */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-3/5 bg-gradient-to-t from-[#0f1e3a]/90 via-[#0f1e3a]/40 to-transparent transition-opacity duration-300 group-hover:opacity-100" />
+        
+        {/* Photo count badge - Glassmorphism */}
+        <span className="absolute right-3 top-3 flex items-center gap-1 rounded-full bg-white/90 backdrop-blur-md px-3 py-1.5 text-[11px] font-bold leading-none shadow-sm ring-1 ring-black/5">
+          <span className="text-[#ea580c]">{totalItems}</span>
+          <span className="text-[#16294d]">{totalItems === 1 ? 'photo' : 'photos'}</span>
         </span>
+        
+        {/* Category badge */}
         {album.category && (
-          <span className="absolute top-3 left-3 text-[10px] font-medium tracking-[0.06em] uppercase px-2 py-1 rounded-full bg-black/60 text-white backdrop-blur">
+          <span className="absolute left-3 top-3 rounded-md bg-[#ea580c] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-white shadow-md">
             {album.category}
           </span>
         )}
-        {!isGTL && (
-          <div className="absolute bottom-3 left-3 right-3">
-            <h3 className="text-[14px] sm:text-[15px] font-medium leading-tight text-white line-clamp-1" title={displayName}>
-              {displayName}
-            </h3>
-            <p className="text-[12px] leading-4 text-white/80 line-clamp-1">{album.description?.slice(0, 48) || 'Swaminarayan Gurukul collection'}</p>
-          </div>
-        )}
+        
+        {/* Album name overlay */}
+        <div className="absolute inset-x-0 bottom-0 p-5 transform transition-transform duration-300 ease-out">
+          <h3 className="line-clamp-1 text-xl font-black leading-tight text-white drop-shadow-md" title={displayName}>
+            {displayName}
+          </h3>
+          <p className="mt-1.5 flex items-center gap-1.5 text-[13px] font-medium text-white/90">
+            <CalendarDays className="h-4 w-4 opacity-90" />
+            {new Date(album.date || album.createdTime).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </p>
+        </div>
       </div>
 
-      <div className="px-4 pt-3 pb-4 flex-1 flex flex-col">
-        <p className="text-[14px] leading-[1.4] text-[#616161] line-clamp-2 flex-1">
+      <div className="flex flex-1 flex-col px-5 pb-5 pt-4">
+        <p className="line-clamp-2 flex-1 text-[14px] leading-relaxed text-[#475569]">
           {album.description || 'Collection of memorable moments captured at Gurukul.'}
         </p>
-        <div className="mt-3 flex items-center justify-between">
-          <span className="text-[14px] text-[#1863dc] group-hover:underline">View →</span>
-          <span className="text-[12px] text-[#93939f]">
-            {new Date(album.date || album.createdTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+        
+        {/* Subtle separator line between description and actions */}
+        <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
+          <span className="inline-flex items-center gap-1.5 text-[14px] font-bold text-[#ea580c] transition-colors group-hover:text-[#c2410c]">
+            View Album <ArrowRight className="h-4 w-4 transition-transform duration-300 ease-out group-hover:translate-x-1.5" />
+          </span>
+          <span className="rounded-full bg-[#fdf6e3] px-3 py-1 text-[11px] font-bold text-[#92600e] ring-1 ring-[#f5e3b3]/70">
+            {totalItems} items
           </span>
         </div>
       </div>

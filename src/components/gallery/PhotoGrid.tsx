@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import { DriveFile } from '@/types';
 import { PhotoCard } from './PhotoCard';
 import { PhotoLightbox } from './PhotoLightbox';
@@ -9,57 +9,34 @@ import { EmptyState } from '../ui/EmptyState';
 interface PhotoGridProps {
   photos: DriveFile[];
   onResetFilters?: () => void;
+  /** Optional per-photo chip text (photoId → label), e.g. match confidence. */
+  badges?: Record<string, string>;
 }
 
-export function PhotoGrid({ photos, onResetFilters }: PhotoGridProps) {
-  const [activeLightboxIndex, setActiveLightboxIndex] = useState<number | null>(null);
-  // Incremental render: mobile browsers choke rendering 1000+ <img> at once.
-  // Show 30 first, then 30 more per tap. Lightbox keeps full-list navigation.
-  const PAGE_SIZE = 30;
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-
-  React.useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [photos]);
+export function PhotoGrid({ photos, onResetFilters, badges }: PhotoGridProps) {
+  const [activeLightboxIndex, setActiveLightboxIndex] = React.useState<number | null>(null);
 
   if (photos.length === 0) {
     return <EmptyState onReset={onResetFilters} />;
   }
 
-  const visiblePhotos = photos.slice(0, visibleCount);
-
   return (
     <>
-      {/* Apple grid: 2 cols mobile, 3 sm, 4 lg - tighter gap on phones */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
-        {visiblePhotos.map((photo) => {
-          const fullIndex = photos.indexOf(photo);
+      {/* 2 cols phones · 3-4 tablets · 4-6 desktop */}
+      <div className="grid w-full grid-cols-2 items-start gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+        {photos.map((photo, fullIndex) => {
           return (
             <PhotoCard
               key={photo.id}
               photo={photo}
               index={fullIndex}
               onClick={(i) => setActiveLightboxIndex(i)}
+              badgeText={badges?.[photo.id]}
             />
           );
         })}
       </div>
 
-      {visibleCount < photos.length && (
-        <div className="flex flex-col items-center gap-2 pt-6 pb-2">
-          <button
-            onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-            className="w-full sm:w-auto inline-flex items-center justify-center rounded-[32px] bg-[#17171c] hover:bg-black text-white text-[14px] font-medium px-8 py-3 min-h-[48px]"
-          >
-            Load more ({photos.length - visibleCount} remaining)
-          </button>
-          <p className="text-[12px] text-[#93939f]">
-            Showing {visibleCount} of {photos.length}
-          </p>
-        </div>
-      )}
-
-      {/* Lightbox Viewer */}
       <PhotoLightbox
         photos={photos}
         currentIndex={activeLightboxIndex}

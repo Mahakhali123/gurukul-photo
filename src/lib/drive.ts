@@ -418,8 +418,8 @@ async function fetchAllDriveData(folderId: string): Promise<{ photos: DriveFile[
   const mainAlbum: Album = {
     id: mainAlbumId,
     folderId,
-    name: 'G-Arts Gallery',
-    description: 'All photos, videos and audios from the G-Arts Google Drive folder.',
+    name: 'Gurukul Gallery',
+    description: 'All photos, videos and audios from the Gurukul gallery collection.',
     coverPhoto: null,
     coverPhotoUrl: '',
     photoCount: 0,

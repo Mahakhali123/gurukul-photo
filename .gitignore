@@ -22,3 +22,6 @@ Thumbs.db
 
 # NOTE: .env.local intentionally ALLOWED per owner request (contains Drive folder ID).
 # Do NOT add .env*.local here.
+
+# Local-only AI secret (OpenRouter key for face-verify). Never commit.
+.openrouter-key

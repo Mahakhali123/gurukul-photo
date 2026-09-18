@@ -271,7 +271,7 @@ export function PhotoLightbox({
     const mt = activeMedia.mediaType || (isAudio ? 'audio' : isVideo ? 'video' : 'image');
     const mediaLabel = mt === 'video' ? 'video' : mt === 'audio' ? 'audio' : 'photo';
     const shareData = {
-      title: `${activeMedia.name || 'Media'} - G-Arts Gurukul`,
+      title: `${activeMedia.name || 'Media'} - Swaminarayan Gurukul`,
       text: activeMedia.description || `Listen to ${mediaLabel} from ${activeMedia.albumName || 'Gurukul'} at Swaminarayan Gurukul.`,
       url: typeof window !== 'undefined' ? window.location.href : '',
     };
@@ -478,12 +478,12 @@ export function PhotoLightbox({
                     <span className="text-amber-300 font-medium">
                       Taking too long?{' '}
                       <button onClick={() => setPlayerMode('drive')} className="underline font-bold hover:text-amber-200">
-                        Switch to Drive player
+                        Switch to alternate player
                       </button>
                     </span>
                   ) : (
                     <button onClick={() => setPlayerMode('drive')} className="text-slate-300 hover:text-white underline">
-                      Video not playing? Try Drive player
+                      Video not playing? Try alternate player
                     </button>
                   )}
                   <a
@@ -492,7 +492,7 @@ export function PhotoLightbox({
                     rel="noreferrer"
                     className="text-slate-300 hover:text-white underline"
                   >
-                    Open in Google Drive
+                    Open original file
                   </a>
                 </div>
               </div>
@@ -516,7 +516,7 @@ export function PhotoLightbox({
                     rel="noreferrer"
                     className="text-slate-300 hover:text-white underline"
                   >
-                    Video still not playing? Open in Google Drive
+                    Video still not playing? Open original file
                   </a>
                 </div>
               </div>
@@ -550,7 +550,7 @@ export function PhotoLightbox({
             ) : audioFailed ? (
               <p className="mt-5 w-full text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2.5">
                 This browser blocked direct playback of this {(activeExt || 'audio').toUpperCase()} file.
-                Please use Download or Open in Google Drive below — the file itself is fine.
+                Please use Download or open the original file below — the file itself is fine.
               </p>
             ) : null}
             {isAudio && !audioFailed && audioSrcIndex > 0 && (
@@ -572,7 +572,7 @@ export function PhotoLightbox({
                 rel="noreferrer"
                 className="text-slate-300 hover:text-white underline"
               >
-                Open in Google Drive
+                Open original file
               </a>
             </div>
           </div>

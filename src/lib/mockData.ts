@@ -40,7 +40,7 @@ export const MOCK_ALBUMS: Album[] = [
   {
     id: 'album-cultural-fest',
     folderId: 'folder-cultural-fest',
-    name: 'G-Arts Heritage & Folk Dance Fest',
+    name: 'Gurukul Heritage & Folk Dance Fest',
     description: 'Traditional Gujarati Ras-Garba, classical music recitals, and theatrical dramas.',
     coverPhotoUrl: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=1200&auto=format&fit=crop',
     coverPhoto: null,
@@ -64,7 +64,7 @@ export const MOCK_ALBUMS: Album[] = [
   {
     id: 'album-art-craft',
     folderId: 'folder-art-craft',
-    name: 'G-Arts Painting & Sculpture Workshop',
+    name: 'Gurukul Painting & Sculpture Workshop',
     description: 'Creative studio sessions, water colour paintings, pottery, and student calligraphy.',
     coverPhotoUrl: 'https://images.unsplash.com/photo-1513364776144-60967b0f800f?q=80&w=1200&auto=format&fit=crop',
     coverPhoto: null,
@@ -156,13 +156,13 @@ export const MOCK_PHOTOS: DriveFile[] = [
     createdTime: '2024-04-12T19:00:00Z',
     modifiedTime: '2024-04-12T19:00:00Z',
     albumId: 'album-cultural-fest',
-    albumName: 'G-Arts Heritage & Folk Dance Fest',
+    albumName: 'Gurukul Heritage & Folk Dance Fest',
     category: 'events',
     width: 1920,
     height: 1280,
     aspectRatio: 1.5,
     description: 'Vibrant colors and synchronised footsteps during the Swaminarayan Gurukul Cultural Night.',
-    tags: ['Cultural', 'Dance', 'Heritage', 'G-Arts']
+    tags: ['Cultural', 'Dance', 'Heritage', 'Gurukul']
   },
   {
     id: 'photo-5',
@@ -185,7 +185,7 @@ export const MOCK_PHOTOS: DriveFile[] = [
   },
   {
     id: 'photo-6',
-    name: 'Watercolour_Landscape_Studio_GArts.jpg',
+    name: 'Watercolour_Landscape_Studio_Gurukul.jpg',
     mimeType: 'image/jpeg',
     directUrl: 'https://images.unsplash.com/photo-1513364776144-60967b0f800f?q=80&w=1200&auto=format&fit=crop',
     downloadUrl: 'https://images.unsplash.com/photo-1513364776144-60967b0f800f?q=80&w=1920&auto=format&fit=crop',
@@ -194,13 +194,13 @@ export const MOCK_PHOTOS: DriveFile[] = [
     createdTime: '2024-05-20T15:00:00Z',
     modifiedTime: '2024-05-20T15:00:00Z',
     albumId: 'album-art-craft',
-    albumName: 'G-Arts Painting & Sculpture Workshop',
+    albumName: 'Gurukul Painting & Sculpture Workshop',
     category: 'activities',
     width: 1920,
     height: 1280,
     aspectRatio: 1.5,
-    description: 'Budding student artists expressing creativity in the G-Arts fine arts atelier.',
-    tags: ['Painting', 'Art', 'Workshop', 'G-Arts']
+    description: 'Budding student artists expressing creativity in the Gurukul fine arts atelier.',
+    tags: ['Painting', 'Art', 'Workshop', 'Gurukul']
   },
   {
     id: 'photo-7',
@@ -308,7 +308,7 @@ export const MOCK_PHOTOS: DriveFile[] = [
     createdTime: '2024-05-20T16:00:00Z',
     modifiedTime: '2024-05-20T16:00:00Z',
     albumId: 'album-art-craft',
-    albumName: 'G-Arts Painting & Sculpture Workshop',
+    albumName: 'Gurukul Painting & Sculpture Workshop',
     category: 'activities',
     width: 1920,
     height: 1280,

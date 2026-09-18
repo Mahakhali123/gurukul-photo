@@ -9,7 +9,19 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // ---- Cohere 2026 design tokens (DESIGN-cohere.md) ----
+        institutional: {
+          saffron: '#ea580c',
+          saffronDark: '#c2410c',
+          saffronLight: '#fff7ed',
+          navy: '#16294d',
+          navyDeep: '#0f1e3a',
+          gold: '#c9a227',
+          goldSoft: '#fdf6e3',
+          ink: '#1e293b',
+          muted: '#64748b',
+          hairline: '#e6eaf1',
+          cream: '#fffbf5',
+        },
         cohere: {
           primary: "#17171c",
           black: "#000000",
@@ -92,8 +104,8 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ["var(--font-inter)", "Inter", "-apple-system", "BlinkMacSystemFont", "Helvetica Neue", "Arial", "sans-serif"],
-        display: ["var(--font-display)", "Space Grotesk", "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        sans: ["var(--font-inter)", "Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Arial", "sans-serif"],
+        display: ["var(--font-display)", "Plus Jakarta Sans", "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
         mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       boxShadow: {

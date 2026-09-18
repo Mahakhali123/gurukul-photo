@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     process.env.GOOGLE_DRIVE_FOLDER_ID = currentFolderId;
     process.env.GOOGLE_DRIVE_API_KEY = currentApiKey;
 
-    const newEnv = `# G-Arts Swaminarayan Gurukul Student Photo Gallery
+    const newEnv = `# Swaminarayan Gurukul Student Photo Gallery
 GOOGLE_DRIVE_FOLDER_ID="${currentFolderId}"
 GOOGLE_DRIVE_API_KEY="${currentApiKey}"
 `;

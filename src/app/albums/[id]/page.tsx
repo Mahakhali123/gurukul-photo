@@ -49,7 +49,7 @@ export default function SingleAlbumPage() {
       }
     } catch (err: any) {
       if (err?.name === 'AbortError') {
-        setError('Taking longer than expected — the server is still reading your Google Drive. Please tap Retry.');
+        setError('Taking longer than expected — the server is still warming up. Please tap Retry.');
       } else {
         setError(err.message || 'Failed to load album');
       }
@@ -105,32 +105,35 @@ export default function SingleAlbumPage() {
   return (
     <div className="space-y-10 pb-16">
       
-      {/* Album Hero Header — Cohere dark band */}
-      <div className="relative bg-[#071829] text-white py-12 sm:py-16 overflow-hidden">
-        
-        {/* Background artwork glow */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-[#003c33] rounded-full blur-3xl pointer-events-none" />
+      {/* Album Hero Header — institutional navy band with saffron accents */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-[#16294d] via-[#1d3560] to-[#0f1e3a] py-12 text-white sm:py-16">
+
+        {/* saffron / gold glows */}
+        <div aria-hidden className="pointer-events-none absolute inset-0"
+          style={{ background: 'radial-gradient(500px 260px at 85% 10%, rgba(234,88,12,0.35), transparent 60%), radial-gradient(400px 240px at 5% 95%, rgba(201,162,39,0.22), transparent 60%)' }}
+        />
+        <div aria-hidden className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#ea580c] via-[#c9a227] to-[#ea580c]" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative space-y-6">
           
           {/* Breadcrumb */}
-          <nav className="flex items-center space-x-2 text-xs text-slate-400">
+          <nav className="flex items-center space-x-2 text-[13px] text-white/60">
             <Link href="/" className="hover:text-white transition">Home</Link>
             <span>/</span>
             <Link href="/albums" className="hover:text-white transition">Albums</Link>
             <span>/</span>
-            <span className="text-amber-300 font-medium truncate max-w-xs" title={displayAlbumName}>{displayAlbumName}</span>
+            <span className="text-[#fdba74] font-semibold truncate max-w-xs" title={displayAlbumName}>{displayAlbumName}</span>
           </nav>
 
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
             <div className="space-y-3 max-w-2xl">
-              <div className="flex items-center space-x-3">
-                <span className="inline-flex items-center text-[11px] uppercase font-medium tracking-[0.08em] px-3 py-1 rounded-full bg-[#ff7759] text-[#17171c]">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="inline-flex items-center text-[11px] uppercase font-bold tracking-[0.12em] px-3 py-1.5 rounded-full bg-[#ea580c] text-white shadow">
                   {album.category}
                 </span>
-                <span className="flex items-center text-xs text-slate-300 font-medium">
-                  <Calendar className="w-3.5 h-3.5 mr-1 text-[#ffad9b]" />
-                  {new Date(album.date || album.createdTime).toLocaleDateString('en-US', {
+                <span className="flex items-center text-[13px] text-white/70 font-medium">
+                  <Calendar className="w-3.5 h-3.5 mr-1.5 text-[#fcd34d]" />
+                  {new Date(album.date || album.createdTime).toLocaleDateString('en-IN', {
                     month: 'long',
                     day: 'numeric',
                     year: 'numeric',
@@ -138,11 +141,11 @@ export default function SingleAlbumPage() {
                 </span>
               </div>
 
-              <h1 className="cohere-display text-[40px] sm:text-[48px] lg:text-[60px] text-white" title={displayAlbumName}>
+              <h1 className="!text-white text-[34px] sm:text-[46px] lg:text-[54px] font-extrabold leading-tight" title={displayAlbumName}>
                 {displayAlbumName}
               </h1>
 
-              <p className="text-sm sm:text-base text-slate-300 leading-relaxed">
+              <p className="text-[15px] sm:text-base text-white/70 leading-relaxed">
                 {displayAlbumDesc}
               </p>
             </div>
@@ -151,15 +154,15 @@ export default function SingleAlbumPage() {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 onClick={handleShare}
-                className="inline-flex items-center space-x-2 px-5 py-3 rounded-[32px] bg-white/10 hover:bg-white/20 text-white text-[14px] font-medium backdrop-blur-sm border border-white/20 transition"
+                className="inline-flex items-center space-x-2 px-5 py-3 rounded-full bg-white/10 hover:bg-white/20 text-white text-[14px] font-semibold backdrop-blur-sm border border-white/20 transition"
               >
-                {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4" />}
+                {copied ? <Check className="w-4 h-4 text-emerald-300" /> : <Share2 className="w-4 h-4" />}
                 <span>{copied ? 'Album Link Copied!' : 'Share Album'}</span>
               </button>
 
               <Link
                 href="/albums"
-                className="inline-flex items-center space-x-2 px-5 py-3 rounded-[32px] bg-white text-[#17171c] hover:bg-[#eeece7] text-[14px] font-medium transition"
+                className="inline-flex items-center space-x-2 px-5 py-3 rounded-full bg-white text-[#16294d] hover:bg-[#fff7ed] text-[14px] font-bold transition"
               >
                 <ArrowLeft className="w-4 h-4" />
                 <span>All Albums</span>
@@ -170,7 +173,7 @@ export default function SingleAlbumPage() {
 
           {/* Photo Count Pill */}
           <div className="pt-2 flex items-center space-x-2 text-[13px] text-white/70">
-            <ImageIcon className="w-4 h-4 text-[#ffad9b]" />
+            <ImageIcon className="w-4 h-4 text-[#fdba74]" />
             <span className="font-semibold">
               {photos.filter((p) => p.mediaType !== 'audio').length} Photos & Videos • {photos.filter((p) => p.mediaType === 'audio').length} Audios • {photos.length} total
             </span>
@@ -183,12 +186,12 @@ export default function SingleAlbumPage() {
       {/* Subfolders inside this album (e.g., Dashavatar Assembly separator folders) */}
       {subAlbums.length > 0 && (
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
-          <div className="flex items-center space-x-2 text-[#ff7759] cohere-mono-label border-b border-[#d9d9dd] pb-3">
+          <div className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-widest text-[#ea580c] border-b border-[#e6eaf1] pb-3">
             <FolderOpen className="w-4 h-4" />
             <span>Folders inside {displayAlbumName} ({subAlbums.length})</span>
           </div>
           <AlbumGrid albums={subAlbums} />
-          <div className="text-xs text-slate-500 pt-2 border-t border-slate-100">
+          <div className="text-[13px] text-[#64748b] pt-2 border-t border-[#f1f5f9]">
             Tap a folder to open its images and videos - each folder keeps its own photos/videos separately.
           </div>
         </div>
@@ -196,11 +199,11 @@ export default function SingleAlbumPage() {
 
       {/* Photos Grid Container */}
       <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-        <div className="flex items-center justify-between border-b border-[#d9d9dd] pb-3">
-          <h2 className="font-medium text-[24px] text-[#212121]">
+        <div className="flex flex-col gap-1 border-b border-[#e6eaf1] pb-4 sm:flex-row sm:items-end sm:justify-between">
+          <h2 className="text-[22px] sm:text-[26px] font-extrabold text-[#16294d]">
             {subAlbums.length > 0 ? `All Media in ${displayAlbumName} (including subfolders)` : `Photos, Videos & Audios in ${displayAlbumName}`}
           </h2>
-          <span className="text-xs text-slate-500">Click any photo to view, play video/audio, or download</span>
+          <span className="text-[13px] text-[#64748b]">Click any photo to view, play video/audio, or download</span>
         </div>
 
         <PhotoGrid photos={photos} />
