@@ -1,5 +1,6 @@
 import { Album, DriveFile, DriveSyncStatus, PhotoCategory, MediaType } from '@/types';
 import { google } from 'googleapis';
+import { listExtraFolders, listBlockedFolderIds } from './extraFolders';
 
 export const DEFAULT_FOLDER_ID = '1Dh9AjndTTraanzUak4bPKO4mJe71IJux';
 
@@ -409,17 +410,31 @@ async function fetchPublicDriveFiles(folderId: string): Promise<Array<{ id: stri
   return scraped;
 }
 
-async function fetchAllDriveData(folderId: string): Promise<{ photos: DriveFile[]; albums: Album[] }> {
+async function fetchAllDriveData(
+  folderId: string,
+  /**
+   * Identity for the album holding files that sit loose in `folderId` itself.
+   *
+   * This MUST be unique per crawled folder. It used to be the hard-coded
+   * 'album-main', which was fine while there was one root — but once extra
+   * folders are crawled too, every one of them produced an album with that same
+   * id, so all but the first were dropped as duplicates. A folder of loose
+   * photos then vanished from the gallery entirely.
+   */
+  rootAlbum?: { id: string; name: string; description?: string }
+): Promise<{ photos: DriveFile[]; albums: Album[] }> {
   const mediaList: DriveFile[] = [];
   const albumsMap = new Map<string, Album>();
 
   // Main album for root-level files
-  const mainAlbumId = 'album-main';
+  const mainAlbumId = rootAlbum?.id ?? 'album-main';
   const mainAlbum: Album = {
     id: mainAlbumId,
     folderId,
-    name: 'Gurukul Gallery',
-    description: 'All photos, videos and audios from the Gurukul gallery collection.',
+    name: rootAlbum?.name ?? 'Gurukul Gallery',
+    description:
+      rootAlbum?.description ??
+      'All photos, videos and audios from the Gurukul gallery collection.',
     coverPhoto: null,
     coverPhotoUrl: '',
     photoCount: 0,
@@ -475,8 +490,18 @@ async function fetchAllDriveData(folderId: string): Promise<{ photos: DriveFile[
     } catch {}
 
     if (subfolders.length === 0) {
-      const scraped = await scrapeSubfolders(folderId);
-      subfolders = scraped.map(s=>({id:s.id,name:s.name}));
+      // Guarded: the HTML scrape throws on a 404, and "no subfolders" is a
+      // perfectly normal shape for a shared folder. Letting that escape aborted
+      // the whole crawl for the folder, so a folder of loose photos never got
+      // its files fetched and silently produced no album at all.
+      try {
+        const scraped = await scrapeSubfolders(folderId);
+        subfolders = scraped.map((s) => ({ id: s.id, name: s.name }));
+      } catch (err: any) {
+        console.warn(
+          `Subfolder scrape for ${folderId} failed (${err?.message || err}) — treating as a flat folder.`
+        );
+      }
     }
   }
 
@@ -509,7 +534,17 @@ async function fetchAllDriveData(folderId: string): Promise<{ photos: DriveFile[
   const orderedPhotos: DriveFile[][] = validFolders.map(() => []);
   await mapWithConcurrency(validFolders, 5, async (folder, folderIndex) => {
     const album = albumsMap.get(folder.id)!;
-    const subFiles = await fetchPublicDriveFiles(folder.id);
+    // Guarded: the subfolder list can contain a phantom id (the HTML scrape
+    // fallback sometimes parses one out of the page), and fetching it throws a
+    // 404. Unguarded, that one bad entry aborted the crawl for the ENTIRE
+    // parent folder, so a freshly uploaded folder produced no album at all.
+    let subFiles: Awaited<ReturnType<typeof fetchPublicDriveFiles>> = [];
+    try {
+      subFiles = await fetchPublicDriveFiles(folder.id);
+    } catch (err: any) {
+      console.warn(`Subfolder ${folder.id} of ${folderId} unreadable:`, err?.message || err);
+      return;
+    }
     for (const file of subFiles) {
       if (!file.id || !file.name || !isMediaFile(file.mimeType)) continue;
       const mt = getMediaType(file.mimeType);
@@ -585,7 +620,15 @@ async function fetchAllDriveData(folderId: string): Promise<{ photos: DriveFile[
       }
       await mapWithConcurrency(nestedFolders, 5, async (nf) => {
         const nestedAlbum = albumsMap.get(nf.id)!;
-        const nestedFiles = await fetchPublicDriveFiles(nf.id);
+        // Same guard as the level above — one unreadable nested folder must not
+        // take the parent crawl down with it.
+        let nestedFiles: Awaited<ReturnType<typeof fetchPublicDriveFiles>> = [];
+        try {
+          nestedFiles = await fetchPublicDriveFiles(nf.id);
+        } catch (err: any) {
+          console.warn(`Nested folder ${nf.id} unreadable:`, err?.message || err);
+          return;
+        }
         for (const file of nestedFiles) {
           if (!file.id || !file.name || !isMediaFile(file.mimeType)) continue;
           const mt = getMediaType(file.mimeType);
@@ -704,6 +747,56 @@ function buildDriveFile(
   };
 }
 
+/**
+ * Crawls the configured root plus every folder added through the upload page,
+ * merging them into one gallery. Each extra folder is crawled independently, so
+ * one unreachable link degrades to "that album is missing" rather than taking
+ * the whole gallery down with it.
+ */
+async function collectAllDriveData(
+  rootFolderId: string
+): Promise<{ photos: DriveFile[]; albums: Album[] }> {
+  const blockedIds = new Set(listBlockedFolderIds());
+  const extras = listExtraFolders().filter(
+    (f) => f.id && f.id !== rootFolderId && !blockedIds.has(f.id)
+  );
+  const results = await Promise.all([
+    fetchAllDriveData(rootFolderId),
+    ...extras.map((f) =>
+      // Each added folder gets its own album for the files sitting directly in
+      // it, named after the folder, so a folder of loose photos still shows up.
+      fetchAllDriveData(f.id, {
+        id: `album-${f.id}`,
+        name: f.label || 'Uploaded folder',
+        description: `Photos, videos and audios from ${f.label || 'an uploaded Drive folder'}.`,
+      }).catch((err) => {
+        console.error(`Extra Drive folder ${f.id} failed:`, err?.message || err);
+        return { photos: [] as DriveFile[], albums: [] as Album[] };
+      })
+    ),
+  ]);
+
+  // Blocking applies to everything, not just added folders — an album from the
+  // main Gurukul folder can be hidden this way too, which is the point of a
+  // blocklist. Photos are dropped alongside their album so a blocked album
+  // cannot leak back in through the all-photos view.
+  const blocked = new Set(listBlockedFolderIds());
+
+  const photos = new Map<string, DriveFile>();
+  const albums = new Map<string, Album>();
+  for (const r of results) {
+    for (const p of r.photos) {
+      if (blocked.has(p.albumId)) continue;
+      if (!photos.has(p.id)) photos.set(p.id, p);
+    }
+    for (const a of r.albums) {
+      if (blocked.has(a.id) || blocked.has(a.folderId)) continue;
+      if (!albums.has(a.id)) albums.set(a.id, a);
+    }
+  }
+  return { photos: Array.from(photos.values()), albums: Array.from(albums.values()) };
+}
+
 export async function getDriveData(forceRefresh = false): Promise<CacheStore> {
   const now = Date.now();
   const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || DEFAULT_FOLDER_ID;
@@ -721,7 +814,7 @@ export async function getDriveData(forceRefresh = false): Promise<CacheStore> {
   // 10s Hobby timeout.
   if (!forceRefresh && memoryCache && now - memoryCache.lastFetched < STALE_MAX_AGE_MS) {
     if (!inflightFetch) {
-      const bg = fetchAllDriveData(folderId)
+      const bg = collectAllDriveData(folderId)
         .then(({ photos, albums }) => {
           memoryCache = { photos, albums, lastFetched: Date.now(), error: null };
           return memoryCache;
@@ -747,7 +840,7 @@ export async function getDriveData(forceRefresh = false): Promise<CacheStore> {
 
   const crawl = (async (): Promise<CacheStore> => {
     try {
-      const { photos, albums } = await fetchAllDriveData(folderId);
+      const { photos, albums } = await collectAllDriveData(folderId);
       memoryCache = { photos, albums, lastFetched: Date.now(), error: null };
       return memoryCache;
     } catch (error: any) {

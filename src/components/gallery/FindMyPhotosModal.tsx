@@ -21,9 +21,11 @@ import {
   MATCH_MIN,
   MATCH_MAX,
   FILTER_MIN,
+  averageDescriptors,
   type FaceMatch,
   type PersonGroup,
 } from '@/lib/faceSearch';
+import { reportTimings, startTiming } from '@/lib/faceTimings';
 
 interface FindMyPhotosModalProps {
   isOpen: boolean;
@@ -36,12 +38,87 @@ type Stage = 'upload' | 'analyzing-selfie' | 'ready' | 'scanning' | 'done';
 // NOMIN parity: several angles beat one. 5 covers front/left/right/glasses/older-photo.
 const MAX_SELFIES = 5;
 
-function thumbFor(photo: DriveFile): string {
-  return photo.thumbnailLink || `/api/thumb?id=${photo.id}&sz=w1000`;
+/**
+ * Preview sources for a result tile, in order of preference.
+ *
+ * Google's CDN leads here because a result grid holds hundreds of tiles and it
+ * serves them in parallel. Routing every tile through our own proxy instead
+ * just moves the queue onto our server, which has to make each Google request
+ * itself — measurably slower for a grid this size. (The scan's cached copies
+ * are no help: those were CORS requests, which the browser caches under a
+ * different key than a plain <img>.)
+ *
+ * The proxy is the first fallback, which is the part that was missing: the tile
+ * previously had a single source and no onError, so one throttled response from
+ * Google left it blank forever.
+ */
+function thumbSources(photo: DriveFile): string[] {
+  return [
+    photo.thumbnailLink || '',
+    `/api/thumb?id=${photo.id}&sz=w400`,
+    `https://drive.google.com/thumbnail?id=${photo.id}&sz=w800`,
+    `https://lh3.googleusercontent.com/d/${photo.id}=w800`,
+  ].filter(Boolean);
+}
+
+/** Result thumbnail that walks the source list instead of going blank on the
+ *  first failure, which is what left tiles permanently empty before. */
+function ResultThumb({
+  photo,
+  className,
+  alt,
+}: {
+  photo: DriveFile;
+  className: string;
+  alt?: string;
+}) {
+  const sources = useMemo(() => thumbSources(photo), [photo]);
+  const [step, setStep] = useState(0);
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <div
+        className={`${className} flex items-center justify-center bg-[#eeece7] text-[#93939f]`}
+        aria-label={alt}
+      >
+        <ImagePlus className="h-5 w-5" />
+      </div>
+    );
+  }
+
+  return (
+    /* eslint-disable-next-line @next/next/no-img-element */
+    <img
+      src={sources[step]}
+      alt={alt ?? photo.name}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => {
+        if (step + 1 < sources.length) setStep(step + 1);
+        else setFailed(true);
+      }}
+      className={className}
+    />
+  );
 }
 
 function confidence(distance: number): string {
   return `${Math.max(0, Math.round((1 - distance) * 100))}%`;
+}
+
+/** "about 2m 10s left" — rounded, never false-precise. */
+function formatEta(secondsLeft: number): string {
+  if (!Number.isFinite(secondsLeft) || secondsLeft <= 0) return 'almost done';
+  if (secondsLeft < 10) return 'a few seconds left';
+  if (secondsLeft < 60) return `about ${Math.round(secondsLeft / 5) * 5}s left`;
+  // Round the whole duration first — rounding the seconds part on its own
+  // yields "4m 60s" whenever the remainder lands above 55.
+  const rounded = Math.round(secondsLeft / 10) * 10;
+  const m = Math.floor(rounded / 60);
+  const s = rounded % 60;
+  return s > 0 ? `about ${m}m ${s}s left` : `about ${m}m left`;
 }
 
 export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModalProps) {
@@ -58,7 +135,28 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
   const [requeryNote, setRequeryNote] = useState<string | null>(null);
 
   const [progress, setProgress] = useState({ done: 0, total: 0 });
-  const [scanMode, setScanMode] = useState<'full' | 'index' | null>(null);
+  const [scanMode, setScanMode] = useState<'full' | 'index' | 'fast' | null>(null);
+  const [etaLabel, setEtaLabel] = useState<string | null>(null);
+
+  // ---- Fast server path (precomputed index, <3s) ----
+  const [consent, setConsent] = useState(false);
+  const [fastLoading, setFastLoading] = useState(false);
+  const [fastError, setFastError] = useState<string | null>(null);
+  const [fastMs, setFastMs] = useState<number | null>(null);
+  const [fastProvider, setFastProvider] = useState<string | null>(null);
+  const [fastNote, setFastNote] = useState<string | null>(null);
+  const [serverFaces, setServerFaces] = useState<number | null>(null);
+  const [visibleCount, setVisibleCount] = useState(48);
+  const [feedbackSent, setFeedbackSent] = useState<Set<string>>(new Set());
+  const selfieDataUrlRef = useRef<string | null>(null);
+  const fastCacheRef = useRef(new Map<string, { at: number; results: FaceMatch[]; ms: number }>());
+
+  // Matches arrive faster than React should re-render. They are buffered here
+  // and flushed on a timer — appending + re-sorting the whole list on every
+  // single hit made the grid stutter badly once a scan passed a few hundred.
+  const pendingMatchesRef = useRef<FaceMatch[]>([]);
+  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scanStartRef = useRef(0);
   const [matches, setMatches] = useState<FaceMatch[]>([]);
   const [cacheCleared, setCacheCleared] = useState(false);
 
@@ -198,16 +296,31 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
     return () => {
       mountedRef.current = false;
     };
+    // Re-probed when the gallery finishes loading too: opening the modal while
+    // /api/photos is still in flight otherwise leaves it reading "0 of 0".
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, photos.length]);
 
   useEffect(() => {
     if (!isOpen) {
       abortRef.current?.abort();
       abortRef.current = null;
+      if (flushTimerRef.current) {
+        clearInterval(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      pendingMatchesRef.current = [];
       stopCamera();
     }
   }, [isOpen, stopCamera]);
+
+  // Guard against the modal unmounting mid-scan leaving the flush timer alive.
+  useEffect(
+    () => () => {
+      if (flushTimerRef.current) clearInterval(flushTimerRef.current);
+    },
+    []
+  );
 
   const resetSelfie = useCallback(() => {
     setSelfies((prev) => {
@@ -217,6 +330,7 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
       return [];
     });
     setMatches([]);
+    setVerifiedIds(new Set());
     setSelectedIds(new Set());
     setProgress({ done: 0, total: 0 });
     setError(null);
@@ -251,6 +365,10 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
       setError(null);
       setStage('analyzing-selfie');
       try {
+        // Stash a 640px copy for the fast server path (parallel, never blocks browser path).
+        selfieToDataUrl640(file)
+          .then((d) => { selfieDataUrlRef.current = d; })
+          .catch(() => {});
         await ensureFaceModels();
         const { descriptor, previewUrl } = await descriptorForSelfie(file);
         if (!mountedRef.current) {
@@ -274,6 +392,7 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
 
   function applyResults(results: FaceMatch[], note?: string | null) {
     setMatches(results);
+    setVisibleCount(48);
     setSelectedIds(new Set(results.map((m) => m.photo.id)));
     setFilterThreshold(searchThreshold);
     setRequeryNote(note ?? null);
@@ -298,6 +417,23 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
     setRequeryNote(null);
     setScanMode('full');
     setStage('scanning');
+    setEtaLabel(null);
+    scanStartRef.current = Date.now();
+    pendingMatchesRef.current = [];
+
+    const flushMatches = () => {
+      const buffered = pendingMatchesRef.current;
+      if (buffered.length === 0 || !mountedRef.current) return;
+      pendingMatchesRef.current = [];
+      setMatches((prev) => [...prev, ...buffered].sort((a, b) => a.distance - b.distance));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const m of buffered) next.add(m.photo.id);
+        return next;
+      });
+    };
+    flushTimerRef.current = setInterval(flushMatches, 400);
+
     try {
       const results = await findMatchingPhotos({
         references: selfies.map((s) => s.descriptor),
@@ -305,26 +441,56 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
         threshold: searchThreshold,
         signal: controller.signal,
         onProgress: (done, total) => {
-          if (mountedRef.current) setProgress({ done, total });
-        },
-        onMatch: (m) => {
-          if (mountedRef.current) {
-            setMatches((prev) => [...prev, m].sort((a, b) => a.distance - b.distance));
-            setSelectedIds((prev) => new Set(prev).add(m.photo.id));
+          if (!mountedRef.current) return;
+          setProgress({ done, total });
+          // Rate is measured over the whole scan so far, which smooths out the
+          // slow start while models warm and the prefetch queue fills.
+          const elapsed = (Date.now() - scanStartRef.current) / 1000;
+          if (done >= 25 && elapsed > 2) {
+            setEtaLabel(formatEta(((total - done) * elapsed) / done));
           }
         },
+        onMatch: (m) => {
+          pendingMatchesRef.current.push(m);
+        },
       });
+      // `results` is the complete, authoritative list, so drop anything still
+      // buffered — otherwise the flush in `finally` would append duplicates.
+      pendingMatchesRef.current = [];
       if (mountedRef.current) applyResults(results);
     } catch (err: any) {
       if (err?.name === 'AbortError') {
-        if (mountedRef.current) setStage('done');
+        if (mountedRef.current) {
+          flushMatches();
+          setStage('done');
+          // A stopped scan still wrote everything it got through to the index,
+          // so refresh coverage — otherwise it looks like the work was thrown
+          // away and the user re-runs it from scratch.
+          indexCoverage(photos)
+            .then((c) => {
+              if (!mountedRef.current) return;
+              setCoverage(c);
+              setRequeryNote(
+                `Stopped — the ${c.indexed.toLocaleString('en-IN')} photos read so far are saved to the index, so continuing later resumes from here.`
+              );
+            })
+            .catch(() => {});
+        }
       } else if (mountedRef.current) {
         setError('Scan stopped unexpectedly. Please try again.');
         setStage('ready');
       }
     } finally {
+      if (flushTimerRef.current) {
+        clearInterval(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      flushMatches();
       if (abortRef.current === controller) abortRef.current = null;
-      if (mountedRef.current) setScanMode(null);
+      if (mountedRef.current) {
+        setScanMode(null);
+        setEtaLabel(null);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selfies, photos, imageCount, searchThreshold]);
@@ -366,6 +532,214 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
 
   const cancelScan = useCallback(() => {
     abortRef.current?.abort();
+  }, []);
+
+  // ---- Fast server helpers (additive; browser scan untouched below) ----
+
+  /** Downscale selfie to ~640px JPEG before upload (cuts bytes ~70%). */
+  const selfieToDataUrl640 = useCallback((file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const t = startTiming('selfie-resize-640');
+          const scale = Math.min(1, 640 / Math.max(img.naturalWidth, img.naturalHeight));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+          canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+          const ctx = canvas.getContext('2d');
+          if (!ctx) throw new Error('Canvas not supported');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          t.end({ w: canvas.width, h: canvas.height, bytes: dataUrl.length });
+          URL.revokeObjectURL(url);
+          resolve(dataUrl);
+        } catch (err) {
+          URL.revokeObjectURL(url);
+          reject(err);
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Could not read selfie'));
+      };
+      img.src = url;
+    });
+  }, []);
+
+  /** Shared server vector index status (faces count drives fast-path CTA). */
+  const [contribState, setContribState] = useState<string | null>(null);
+  const [verifiedIds, setVerifiedIds] = useState<Set<string>>(new Set());
+
+  const refreshServerStatus = useCallback(async () => {
+    try {
+      const r = await fetch('/api/face-index');
+      const j = await r.json();
+      if (!mountedRef.current) return;
+      if (typeof j?.memory?.faces === 'number') setServerFaces(j.memory.faces);
+    } catch {
+      // status is best-effort
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    void refreshServerStatus();
+  }, [isOpen, refreshServerStatus]);
+
+  /**
+   * Contribute this device's already-computed vectors to the shared index.
+   * No photos re-read, no re-detection — uploads what the browser scan
+   * already stored, in small chunks. Makes fast search better for everyone.
+   */
+  const contributeIndex = useCallback(async () => {
+    setContribState('Uploading…');
+    try {
+      const { getAllCachedDescriptors } = await import('@/lib/faceSearch');
+      const rows = await getAllCachedDescriptors(photos);
+      if (rows.length === 0) {
+        setContribState('Nothing saved on this device yet — run Start search first, then share.');
+        return;
+      }
+      let sent = 0;
+      for (let i = 0; i < rows.length; i += 200) {
+        const chunk = rows.slice(i, i + 200);
+        const r = await fetch('/api/face-index', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows: chunk }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.success) throw new Error(j.error || 'Upload failed.');
+        sent += chunk.length;
+        if (mountedRef.current) setContribState(`Uploading… ${sent}/${rows.length} photos`);
+      }
+      if (mountedRef.current) setContribState(`Shared ${sent} photos — ⚡ Fast search is now better for everyone.`);
+      void refreshServerStatus();
+    } catch (err: unknown) {
+      if (mountedRef.current) setContribState(err instanceof Error ? err.message : 'Share failed.');
+    }
+  }, [photos, refreshServerStatus]);
+
+  /**
+   * ⚡ Fast search: the browser already computed the selfie descriptor —
+   * only those 128 numbers go to the server (no photo upload). The server
+   * searches the shared vector index in milliseconds and asks NVIDIA's AI
+   * to double-check the top few (same slider scale throughout).
+   */
+  const fastSearch = useCallback(
+    async () => {
+      if (selfies.length === 0) return;
+      if (!consent) {
+        setFastError('Please tick the consent box first — required because students may be minors.');
+        return;
+      }
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setFastError(null);
+      setFastNote(null);
+      setFastLoading(true);
+      setScanMode('fast');
+      setStage('scanning');
+      setMatches([]);
+      setVerifiedIds(new Set());
+      setProgress({ done: 0, total: imageCount });
+      const tTotal = startTiming('fast-search-total');
+      try {
+        const avg = averageDescriptors(selfies.map((s) => s.descriptor));
+        if (!avg) throw new Error('Could not use that selfie — re-upload it and try again.');
+        const cacheKey = `${selfies.length}:${Array.from(avg.slice(0, 8)).map((v) => v.toFixed(3)).join(',')}:${searchThreshold.toFixed(2)}`;
+        const cached = fastCacheRef.current.get(cacheKey);
+        if (cached && Date.now() - cached.at < 5 * 60 * 1000) {
+          applyResults(cached.results, `Instant — same selfie from a few minutes ago (${cached.ms}ms).`);
+          setFastMs(cached.ms);
+          return;
+        }
+        const res = await fetch('/api/face-search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            descriptor: Array.from(avg),
+            consent: true,
+            threshold: searchThreshold,
+            topK: 200,
+            // AI double-check only; the match itself needs just the numbers.
+            selfieDataUrl: selfieDataUrlRef.current,
+          }),
+          signal: controller.signal,
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json.success) {
+          throw new Error(json.error || `Fast search responded ${res.status}.`);
+        }
+        // Map server photoIds onto the already-loaded gallery files (no re-fetch).
+        const byId = new Map(photos.map((p) => [p.id, p]));
+        const results: FaceMatch[] = (json.matches ?? [])
+          .map((m: { photoId: string; distance: number; faceSize?: number }) => {
+            const photo = byId.get(m.photoId);
+            return photo ? { photo, distance: m.distance, faceSize: m.faceSize ?? 80 } : null;
+          })
+          .filter(Boolean) as FaceMatch[];
+        const ms = typeof json.ms === 'number' ? json.ms : tTotal.ms();
+        fastCacheRef.current.set(cacheKey, { at: Date.now(), results, ms });
+        setFastMs(ms);
+        const aiN = typeof json.verifiedCount === 'number' ? json.verifiedCount : 0;
+        setFastProvider(aiN > 0 ? `NVIDIA AI ✓${aiN}` : 'vector match');
+        setFastNote(typeof json.verifyNote === 'string' ? json.verifyNote : null);
+        setVerifiedIds(new Set((json.matches ?? []).filter((m: { verified?: boolean }) => m.verified).map((m: { photoId: string }) => m.photoId)));
+        reportTimings([
+          { stage: 'fast-search-total', ms },
+          { stage: 'fast-matrix-search', ms: json.timings?.searchMs ?? 0 },
+        ]);
+        tTotal.end({ matches: results.length, aiConfirmed: aiN });
+        if ((json.indexedFaces ?? 0) === 0) {
+          // Searched an empty shelf: say so plainly instead of "no matches".
+          applyResults(
+            [],
+            'Shared index holds 0 photos, so there was nothing to search — tap "Share my index" below (or run Start search first, then share). Meanwhile Start search below still works.'
+          );
+          return;
+        }
+        applyResults(
+          results,
+          `⚡ ${results.length} match${results.length === 1 ? '' : 'es'} in ${(ms / 1000).toFixed(1)}s from ${(json.indexedPhotos ?? 0).toLocaleString('en-IN')} shared photos (bar ${Number(json.threshold ?? searchThreshold).toFixed(2)})${aiN > 0 ? ` · ${aiN} AI-confirmed ✓` : ''}.`
+        );
+      } catch (err: unknown) {
+        if ((err as Error)?.name === 'AbortError') {
+          setStage('ready');
+        } else {
+          const msg = err instanceof Error ? err.message : 'Fast search failed.';
+          setFastError(`${msg} — you can still use Start search (browser) below.`);
+          setStage('ready');
+        }
+      } finally {
+        setFastLoading(false);
+        if (mountedRef.current) setScanMode(null);
+        if (abortRef.current === controller) abortRef.current = null;
+      }
+    },
+    [consent, imageCount, photos, searchThreshold, selfies]
+  );
+
+  const sendNotMe = useCallback(async (photoId: string, distance: number) => {
+    try {
+      await fetch('/api/face-feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoId, score: 1 - distance, verdict: 'not-me' }),
+      });
+      setFeedbackSent((prev) => new Set(prev).add(photoId));
+      setMatches((prev) => prev.filter((m) => m.photo.id !== photoId));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(photoId);
+        return next;
+      });
+    } catch {
+      // feedback is best-effort
+    }
   }, []);
 
   // ---- PICK helpers ----
@@ -469,8 +843,10 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
   const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
   const strictLabel = searchThreshold <= 0.42 ? 'Strict' : searchThreshold >= 0.62 ? 'Find all' : 'Balanced';
 
+  // !m-0: this overlay renders inside containers using `space-y-*`, whose
+  // sibling margin would otherwise shift the fixed element off-viewport.
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" role="dialog" aria-modal="true" aria-label="Find my photos">
+    <div className="fixed inset-0 z-50 !m-0 flex items-end sm:items-center justify-center sm:p-4" role="dialog" aria-modal="true" aria-label="Find my photos">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
       <div className="relative w-full sm:max-w-4xl max-h-[92vh] overflow-y-auto bg-white rounded-t-[20px] sm:rounded-[20px] p-5 sm:p-8">
         <button
@@ -659,6 +1035,49 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
                   ? `${coverage.indexed.toLocaleString('en-IN')} of ${coverage.total.toLocaleString('en-IN')} photos already indexed. Re-search answers in ~1s; full search reads anything new.`
                   : 'First search reads every photo once, then repeats are instant from the index.'}
               </p>
+              {/* ⚡ Fast path — shared vector index + NVIDIA AI double-check, answers in seconds */}
+              <div className="mt-3 rounded-[12px] border border-[#003c33]/30 bg-[#003c33]/5 p-3">
+                <label className="flex items-start gap-2 text-[12px] text-[#212121] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={consent}
+                    onChange={(e) => setConsent(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 accent-[#003c33]"
+                  />
+                  <span>
+                    I consent to this selfie being used to find my photos (for ⚡ Fast search the selfie
+                    is also shown to NVIDIA&apos;s AI to double-check top matches), and I understand only my own
+                    matches are shown. Students may be minors — ask a parent/teacher if unsure.
+                  </span>
+                </label>
+                <div className="mt-2 flex flex-col sm:flex-row gap-2">
+                  <button
+                    onClick={() => { setVisibleCount(48); void fastSearch(); }}
+                    disabled={!consent || fastLoading || stage === 'scanning'}
+                    title={serverFaces ? `Shared index holds ${serverFaces} faces — answers in seconds` : 'Shared index is empty — run a browser search, then share it'}
+                    className="flex-1 inline-flex items-center justify-center rounded-[32px] bg-[#003c33] hover:bg-[#004d40] disabled:opacity-40 text-white text-[14px] font-bold px-6 min-h-[48px] transition"
+                  >
+                    {fastLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ScanFace className="w-4 h-4 mr-2" />}
+                    ⚡ Fast search {serverFaces ? `(${serverFaces.toLocaleString('en-IN')} faces ready)` : ''}{fastMs ? ` · last ${(fastMs / 1000).toFixed(1)}s${fastProvider ? ` · ${fastProvider}` : ''}` : ''}
+                  </button>
+                </div>
+                {fastError && <p className="mt-2 text-[12px] text-[#b30000]">{fastError}</p>}
+                {fastNote && <p className="mt-2 text-[12px] text-[#616161]">{fastNote}</p>}
+                <div className="mt-2">
+                  <p className="text-[11px] text-[#93939f]">
+                    {(serverFaces ?? 0) === 0
+                      ? 'Shared index is empty — that is why Fast search finds nothing yet. Run Start search below once, then share it so everyone searches in seconds.'
+                      : 'Make Fast search better for everyone by sharing the faces this device already computed (no photos re-read).'}
+                  </p>
+                  <button
+                    onClick={contributeIndex}
+                    className="mt-2 inline-flex items-center justify-center rounded-[32px] border border-[#003c33] text-[#003c33] text-[13px] font-semibold px-5 min-h-[44px]"
+                  >
+                    Share my index for everyone
+                  </button>
+                  {contribState && <p className="mt-1 text-[11px] text-[#003c33]">{contribState}</p>}
+                </div>
+              </div>
               {stage === 'scanning' && (
                 <div className="mt-3">
                   <div className="h-2 rounded-full bg-[#eeece7] overflow-hidden">
@@ -666,7 +1085,8 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
                   </div>
                   <p className="mt-1 text-[12px] text-[#93939f]">
                     {scanMode === 'index' ? 'Re-scoring index… ' : ''}
-                    {progress.done.toLocaleString('en-IN')} / {progress.total.toLocaleString('en-IN')} ({pct}%) — matches tick themselves below as found
+                    {progress.done.toLocaleString('en-IN')} / {progress.total.toLocaleString('en-IN')} ({pct}%)
+                    {etaLabel ? ` — ${etaLabel}` : ''} · matches tick themselves below as found
                   </p>
                 </div>
               )}
@@ -775,6 +1195,13 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
               </div>
             )}
 
+            {(stage === 'scanning' && matches.length === 0) && (
+              <div className="pt-3 grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3" aria-label="Loading matches">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="aspect-[4/3] w-full animate-pulse rounded-[12px] bg-[#eeece7]" />
+                ))}
+              </div>
+            )}
             {stage === 'done' && matches.length === 0 ? (
               <div className="py-10 text-center">
                 <p className="text-[15px] font-medium text-[#212121]">No matches at this strictness.</p>
@@ -791,8 +1218,9 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
                   Best match first. Click a tile to tick it · double-click to open full size. The % chip is the match confidence.
                 </p>
                 <div className="pt-3 grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {filtered.map((m, idx) => {
+                  {filtered.slice(0, visibleCount).map((m, idx) => {
                     const selected = selectedIds.has(m.photo.id);
+                    const flagged = feedbackSent.has(m.photo.id);
                     return (
                       <div
                         key={m.photo.id}
@@ -801,12 +1229,8 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
                         className={`group relative cursor-pointer overflow-hidden rounded-[12px] border-2 transition ${selected ? 'border-[#ff7759] shadow-md' : 'border-transparent hover:border-[#d9d9dd]'}`}
                         title={`${m.photo.name} — double-click to open`}
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={thumbFor(m.photo)}
-                          alt={m.photo.name}
-                          loading="lazy"
-                          referrerPolicy="no-referrer"
+                        <ResultThumb
+                          photo={m.photo}
                           className="aspect-[4/3] w-full object-cover"
                         />
                         <span
@@ -818,6 +1242,19 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
                         <span className="absolute bottom-2 right-2 rounded-full bg-black/70 px-2.5 py-1 text-[11px] font-semibold text-white">
                           {confidence(m.distance)}
                         </span>
+                        {verifiedIds.has(m.photo.id) && (
+                          <span className="absolute left-2 bottom-2 rounded-full bg-[#003c33]/90 px-2 py-1 text-[10px] font-bold text-white">
+                            ✓ AI-checked
+                          </span>
+                        )}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); void sendNotMe(m.photo.id, m.distance); }}
+                          disabled={flagged}
+                          title="Not me — removes this photo and helps tune matching"
+                          className="absolute right-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-[#616161] hover:text-[#b30000] disabled:opacity-50"
+                        >
+                          {flagged ? 'Flagged' : 'Not me'}
+                        </button>
                         <span className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/70 to-transparent px-2 pb-1.5 pt-5 text-[11px] text-white/90">
                           {m.photo.name}
                         </span>
@@ -825,6 +1262,14 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
                     );
                   })}
                 </div>
+                {filtered.length > visibleCount && (
+                  <button
+                    onClick={() => setVisibleCount((c) => c + 48)}
+                    className="mt-3 w-full inline-flex items-center justify-center rounded-[32px] border border-[#d9d9dd] text-[#212121] text-[13px] font-medium px-6 min-h-[44px]"
+                  >
+                    Show more ({filtered.length - visibleCount} remaining)
+                  </button>
+                )}
 
                 {/* ================= 4 EXPORT ================= */}
                 <div className="mt-4 rounded-[12px] bg-[#17171c] text-white p-4 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -885,7 +1330,7 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
                     className="rounded-[12px] border border-[#d9d9dd] hover:border-[#ff7759] overflow-hidden bg-white text-left transition"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={thumbFor(g.best.photo)} alt="" className="aspect-square w-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
+                    <ResultThumb photo={g.best.photo} alt="" className="aspect-square w-full object-cover" />
                     <span className="block px-2 py-1.5 text-[11px] font-semibold text-[#212121]">{g.nFiles} file{g.nFiles === 1 ? '' : 's'}</span>
                   </button>
                 ))}
@@ -902,7 +1347,7 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
                   {peopleView.faces.map((f, i) => (
                     <span key={`${f.photo.id}-${i}`} className="overflow-hidden rounded-[10px] border border-[#eeece7]">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={thumbFor(f.photo)} alt={f.photo.name} className="aspect-square w-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
+                      <ResultThumb photo={f.photo} className="aspect-square w-full object-cover" />
                     </span>
                   ))}
                 </div>
@@ -934,6 +1379,8 @@ export function FindMyPhotosModal({ isOpen, onClose, photos }: FindMyPhotosModal
           ref={fileInputRef}
           type="file"
           accept="image/*"
+          // Mobile-first: lets phones offer the camera directly from this picker.
+          capture="user"
           className="hidden"
           onChange={(e) => {
             handleFile(e.target.files?.[0]);

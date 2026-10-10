@@ -16,39 +16,28 @@ export function EmptyState({
   resetLabel = 'Clear filters',
 }: EmptyStateProps) {
   return (
-    <div className="mx-auto flex max-w-lg flex-col items-center justify-center rounded-[24px] border border-[#e6eaf1] bg-white px-6 py-14 text-center shadow-sm sm:py-16">
-      <span className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#fff7ed] text-[#ea580c] ring-1 ring-[#fed7aa]">
+    <div className="mx-auto flex max-w-lg flex-col items-center justify-center border border-[#dddddd] bg-white px-6 py-14 text-center sm:py-16">
+      <span className="mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-[#dddddd] bg-[#eff2f6] text-[#cc0000]">
         <Camera className="h-8 w-8" />
       </span>
-      <h3 className="text-[22px] font-extrabold text-[#16294d]">{title}</h3>
-      <p className="mb-6 mt-2 text-[14px] leading-relaxed text-[#64748b]">
-        {description}
-      </p>
+      <h3 className="h3-common">{title}</h3>
+      <p className="mb-6 mt-2 text-[16px] leading-[28px] text-[#6c757d]">{description}</p>
 
-      <div className="flex flex-wrap items-center justify-center gap-3">
-        <Link
-          href="/photos"
-          className="btn-saffron !min-h-[46px] !px-6 !py-2.5 !text-[14px]"
-        >
-          <FolderOpen className="mr-2 h-4 w-4" />
-          <span>Browse gallery</span>
+      <div className="flex flex-wrap items-center justify-center gap-4">
+        <Link href="/photos" className="gk-btn gk-btn-primary">
+          <FolderOpen className="h-4 w-4" />
+          Browse gallery
         </Link>
 
         {onReset ? (
-          <button
-            onClick={onReset}
-            className="btn-outline !min-h-[46px] !px-5 !py-2.5 !text-[14px]"
-          >
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-            <span>{resetLabel}</span>
+          <button onClick={onReset} className="gk-btn gk-btn-outline">
+            <RefreshCw className="h-4 w-4" />
+            {resetLabel}
           </button>
         ) : (
-          <Link
-            href="/albums"
-            className="btn-outline !min-h-[46px] !px-5 !py-2.5 !text-[14px]"
-          >
-            <span>View albums</span>
-            <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+          <Link href="/albums" className="gk-btn gk-btn-outline">
+            View albums
+            <ArrowRight className="h-4 w-4" />
           </Link>
         )}
       </div>
@@ -64,29 +53,23 @@ export function ErrorMessage({
   onRetry?: () => void;
 }) {
   return (
-    <div className="mx-auto flex max-w-md flex-col items-center justify-center rounded-[24px] border border-[#fecaca] bg-[#fff5f5] px-6 py-14 text-center">
-      <span className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-white text-[#dc2626] shadow-sm">
+    <div className="mx-auto flex max-w-md flex-col items-center justify-center border border-[#cc0000]/30 bg-[#eff2f6] px-6 py-14 text-center">
+      <span className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-white text-[#cc0000]">
         <ImageOff className="h-8 w-8" />
       </span>
-      <h3 className="text-[20px] font-extrabold text-[#16294d]">Something went wrong</h3>
-      <p className="mb-6 mt-2 text-[14px] leading-relaxed text-[#64748b]">{message}</p>
+      <h3 className="h3-common">Something went wrong</h3>
+      <p className="mb-6 mt-2 text-[16px] leading-[28px] text-[#6c757d]">{message}</p>
 
-      <div className="flex flex-wrap items-center justify-center gap-3">
+      <div className="flex flex-wrap items-center justify-center gap-4">
         {onRetry && (
-          <button
-            onClick={onRetry}
-            className="btn-saffron !min-h-[46px] !px-6 !py-2.5 !text-[14px]"
-          >
-            <RefreshCw className="mr-2 h-3.5 w-3.5" />
-            <span>Try again</span>
+          <button onClick={onRetry} className="gk-btn gk-btn-primary">
+            <RefreshCw className="h-4 w-4" />
+            Try again
           </button>
         )}
 
-        <Link
-          href="/"
-          className="btn-outline !min-h-[46px] !px-5 !py-2.5 !text-[14px]"
-        >
-          <span>Go home</span>
+        <Link href="/" className="gk-btn gk-btn-outline">
+          Go home
         </Link>
       </div>
     </div>

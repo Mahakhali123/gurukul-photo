@@ -152,50 +152,42 @@ function PhotosGalleryContent() {
 
   return (
     <div className="bg-white">
-      {/* Institutional page hero */}
-      <div className="relative border-b border-[#f1e8d5] bg-[#fffbf5] overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(#e6eaf1_1px,transparent_1px)] [background-size:16px_16px] opacity-60"></div>
-        <div className="relative mx-auto max-w-[1200px] px-4 pb-12 pt-16 sm:px-6 sm:pt-20">
-          <p className="flex items-center gap-3 text-[13px] font-bold uppercase tracking-widest text-[#ea580c]">
-            <span className="h-[2px] w-8 rounded-full bg-gradient-to-r from-[#ea580c] to-transparent"></span>
-            Gallery
-          </p>
-          <h1 className="mt-4 text-[42px] font-extrabold leading-[1.1] tracking-tight sm:text-[64px]">
-            <span className="bg-gradient-to-r from-[#16294d] via-[#ea580c] to-[#9a3412] bg-clip-text text-transparent">
-              Photo Gallery
-            </span>
-          </h1>
-          
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <div className="animate-fade-in-up flex items-center rounded-full border border-[#fbd38d]/30 bg-white/60 px-4 py-1.5 text-sm font-semibold text-[#16294d] shadow-sm backdrop-blur-md">
-              <span className="text-[#ea580c]">{photos.length}</span>
-              <span className="ml-1.5 opacity-70">photos</span>
-              <span className="mx-2 opacity-30">•</span>
-              <span className="text-[#ea580c]">{albums.length}</span>
-              <span className="ml-1.5 opacity-70">albums</span>
-              <span className="mx-2 opacity-30">•</span>
-              <span className="text-[#ea580c]">{albums.filter(a => a.category === 'events').length}</span>
-              <span className="ml-1.5 opacity-70">events</span>
-            </div>
-          </div>
+      {/* Page head */}
+      <div className="border-b border-[#dddddd] bg-[#eff2f6]">
+        <div className="gk-container py-12 lg:pt-[90px]">
+          <span className="eyebrow">Gallery</span>
+          <h1 className="h1-common mt-3">Photo Gallery</h1>
 
-          <p className="mt-6 max-w-2xl text-[16px] leading-relaxed text-[#475569] sm:text-[18px]">
-            Relive the best moments from our campus. Browse through high-quality student photos, videos, and audio highlights from Gurukul events, activities, and celebrations.
+          <p className="mt-4 text-[17px] text-[#6c757d]">
+            <span className="text-[#cc0000]">{photos.length}</span> photos
+            <span className="mx-2 opacity-40">•</span>
+            <span className="text-[#cc0000]">{albums.length}</span> albums
+            <span className="mx-2 opacity-40">•</span>
+            <span className="text-[#cc0000]">
+              {albums.filter((a) => a.category === 'events').length}
+            </span>{' '}
+            events
+          </p>
+
+          <p className="mt-5 max-w-2xl text-[18px] leading-[1.75]">
+            Relive the best moments from our campus — high-quality student photos,
+            videos and audio highlights from Gurukul events, activities and
+            celebrations.
           </p>
         </div>
       </div>
 
-      <div className="mx-auto max-w-[1200px] space-y-8 px-4 pb-16 pt-8 sm:px-6">
+      <div className="gk-container space-y-8 pb-16 pt-10">
         <div className="flex justify-start sm:justify-end">
           <button
             onClick={() => setFindMyPhotosOpen(true)}
-            className="inline-flex w-full min-h-[56px] sm:w-auto items-center justify-center rounded-full bg-gradient-to-r from-[#f97316] to-[#ea580c] px-8 text-base font-bold text-white shadow-[0_8px_20px_-6px_rgba(234,88,12,0.6)] transition-shadow hover:shadow-[0_12px_25px_-6px_rgba(234,88,12,0.7)]"
+            className="gk-btn gk-btn-primary w-full sm:w-auto"
           >
-            <ScanFace className="mr-2.5 h-5 w-5" /> Find My Photos
+            <ScanFace className="h-5 w-5" /> Find My Photos
           </button>
         </div>
 
-        <div className="rounded-[24px] bg-white p-2 shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-slate-100">
+        <div>
           <GalleryFilterBar
             categories={CATEGORIES}
             activeCategory={selectedCategory}

@@ -25,3 +25,13 @@ Thumbs.db
 
 # Local-only AI secret (OpenRouter key for face-verify). Never commit.
 .openrouter-key
+
+# Runtime-added Drive folders (written by the unlisted upload page)
+data/
+
+# Fast face-search artifacts (local only — embeddings, ONNX models, thumbs, debug crops)
+public/face-thumbs/
+public/debug/
+data/face-index/
+data/face-models/
+data/face-debug/

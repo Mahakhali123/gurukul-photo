@@ -1,5 +1,7 @@
-﻿/** @type {import('next').NextConfig} */
+/** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Server holds no ML models (API-only: browser vectors + NVIDIA verify),
+  // so no native bindings need externalizing.
   images: {
     remotePatterns: [
       {
@@ -23,6 +25,16 @@ const nextConfig = {
         hostname: '**.googleusercontent.com',
       }
     ],
+  },
+  async rewrites() {
+    return [
+      // The Gurukul theme serves the brand faces without CORS headers, and fonts
+      // are always fetched in CORS mode — so proxy them onto our own origin.
+      {
+        source: '/brand-fonts/:file*',
+        destination: 'https://gurukul.org/wp-content/themes/gurukularts/fonts/:file*',
+      },
+    ];
   },
 };
 

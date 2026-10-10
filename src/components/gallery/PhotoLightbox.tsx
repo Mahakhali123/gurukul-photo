@@ -113,6 +113,10 @@ export function PhotoLightbox({
   // nested <source> fallbacks, so we cycle src on onError instead.
   const [audioSrcIndex, setAudioSrcIndex] = useState(0);
   const [audioFailed, setAudioFailed] = useState(false);
+  // Still images need the same treatment as audio: the Google CDN throttles
+  // hot-linked requests (especially right after a face scan has hammered it),
+  // and a single src with no fallback just renders a broken-image icon.
+  const [imageSrcIndex, setImageSrcIndex] = useState(0);
   const touchStartX = React.useRef<number | null>(null);
 
   // Defensive: photos may be undefined during loading / malformed cache.
@@ -133,6 +137,33 @@ export function PhotoLightbox({
       (activeMime.startsWith('audio/') ||
         ['mp3', 'wav', 'wave', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'flac', 'wma', 'aiff', 'aif'].includes(activeExt)));
   const isImage = !!activeMedia && !isVideo && !isAudio;
+
+  // A window of neighbours for the filmstrip. Capped on purpose — a set can
+  // hold thousands of photos and rendering them all would stall the viewer.
+  const filmstrip =
+    currentIndex === null
+      ? []
+      : (() => {
+          const span = 6;
+          const start = Math.max(0, Math.min(currentIndex - span, safePhotos.length - span * 2 - 1));
+          const end = Math.min(safePhotos.length, start + span * 2 + 1);
+          const out: { photo: DriveFile; index: number }[] = [];
+          for (let i = Math.max(0, start); i < end; i++) out.push({ photo: safePhotos[i], index: i });
+          return out;
+        })();
+
+  // Image sources, tried in order. The same-origin proxy leads because it is
+  // the only one that reliably works when Google is rate-limiting hot-links:
+  // it fetches server-side with a browser user-agent and caches for a day.
+  const imageSources = activeMedia
+    ? ([
+        `/api/thumb?id=${activeMedia.id}&sz=w1920`,
+        activeMedia.highResUrl,
+        activeMedia.directUrl,
+        activeMedia.thumbnailLink,
+        `/api/download?id=${activeMedia.id}&name=${encodeURIComponent(activeMedia.name || '')}&mode=stream`,
+      ].filter(Boolean) as string[])
+    : [];
 
   // WHY this order for <video> sources:
   // 1. uc?export=view serves bytes INLINE (plays in the page). The old
@@ -174,6 +205,7 @@ export function PhotoLightbox({
     setVideoSlow(false);
     setAudioSrcIndex(0);
     setAudioFailed(false);
+    setImageSrcIndex(0);
     // Codecs browsers can't play natively (mkv/avi/wmv/flv) start directly
     // in the Drive player — <video> would just sit on the poster forever.
     if (activeMedia?.mediaType === 'video' || activeMime.startsWith('video/')) {
@@ -336,45 +368,60 @@ export function PhotoLightbox({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-black/95 text-white backdrop-blur-md select-none animate-fade-in"
+      /* !m-0 is load-bearing: this overlay renders inside page containers that
+         use `space-y-*`, whose sibling margin lands on the fixed element too
+         and pushes it off the viewport. */
+      className="fixed inset-0 z-[100] !m-0 flex flex-col bg-[rgba(10,10,10,0.97)] text-white backdrop-blur-xl select-none animate-fade-in"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
-      
+      {/* Brand wash — a faint Gurukul red glow so the stage doesn't read as a
+          generic black box. Purely decorative, never intercepts pointers. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(900px 420px at 50% -10%, rgba(204,0,0,0.20), transparent 65%), radial-gradient(700px 400px at 50% 110%, rgba(204,0,0,0.10), transparent 65%)',
+        }}
+      />
+
       {/* Top Header Bar */}
-      <div className="flex items-center justify-between gap-2 px-3 sm:px-6 py-3 bg-black/60 border-b border-white/10 z-20" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
-        <div className="flex items-center space-x-2 sm:space-x-3 truncate min-w-0 flex-1">
-          <span className="shrink-0 text-xs font-semibold px-2 py-1 rounded-full bg-orange-600/80 text-orange-100 border border-orange-500/40 flex items-center space-x-1">
-            {isVideo ? <Video className="w-3 h-3" /> : isAudio ? <Music className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />}
+      <div
+        className="relative z-20 flex items-center justify-between gap-3 border-b border-white/10 bg-black/50 px-3 py-3 sm:px-6"
+        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-3 truncate">
+          <span className="flex shrink-0 items-center gap-1.5 bg-[#cc0000] px-2.5 py-1 text-[12px] font-medium text-white">
+            {isVideo ? <Video className="h-3 w-3" /> : isAudio ? <Music className="h-3 w-3" /> : <ImageIcon className="h-3 w-3" />}
             <span>{currentIndex + 1} / {safePhotos.length}</span>
           </span>
-          <h2 className="text-sm font-medium text-slate-200 truncate min-w-0">
+          <h2 className="min-w-0 truncate font-title text-[20px] leading-tight text-white sm:text-[24px]">
             {activeMedia.name || 'Untitled'}
           </h2>
         </div>
 
         {/* Toolbar Controls */}
-        <div className="flex items-center space-x-1 sm:space-x-2">
-          
+        <div className="flex items-center gap-1.5">
           {/* Zoom controls (For images only — hidden for video & audio) */}
           {isImage && (
             <>
               <button
                 onClick={() => setZoomLevel((z) => Math.max(z - 0.25, 1))}
                 disabled={zoomLevel <= 1}
-                className="p-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 disabled:opacity-30 transition"
+                className="flex h-9 w-9 items-center justify-center border border-white/15 text-white/70 transition-colors hover:border-white hover:bg-white hover:text-[#cc0000] disabled:opacity-25 disabled:hover:border-white/15 disabled:hover:bg-transparent disabled:hover:text-white/70"
                 title="Zoom Out (-)"
               >
-                <ZoomOut className="w-4 h-4" />
+                <ZoomOut className="h-4 w-4" />
               </button>
-              
+
               <button
                 onClick={() => setZoomLevel((z) => Math.min(z + 0.25, 3))}
                 disabled={zoomLevel >= 3}
-                className="p-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 disabled:opacity-30 transition"
+                className="flex h-9 w-9 items-center justify-center border border-white/15 text-white/70 transition-colors hover:border-white hover:bg-white hover:text-[#cc0000] disabled:opacity-25 disabled:hover:border-white/15 disabled:hover:bg-transparent disabled:hover:text-white/70"
                 title="Zoom In (+)"
               >
-                <ZoomIn className="w-4 h-4" />
+                <ZoomIn className="h-4 w-4" />
               </button>
             </>
           )}
@@ -382,22 +429,22 @@ export function PhotoLightbox({
           {/* Prominent Download button */}
           <button
             onClick={handleDownload}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white font-bold text-xs shadow-md transition"
+            className="inline-flex min-h-[36px] items-center gap-2 border-2 border-[#cc0000] bg-[#cc0000] px-4 font-title text-[17px] leading-7 text-white transition-colors hover:border-white hover:bg-white hover:text-[#cc0000]"
             title={`Download ${isVideo ? 'Video' : isAudio ? 'Audio' : 'High-Res Photo'}`}
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="h-4 w-4" />
             <span className="hidden sm:inline">Download</span>
           </button>
 
           {/* Share button */}
           <button
             onClick={handleShare}
-            className="p-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition relative"
+            className="relative flex h-9 w-9 items-center justify-center border border-white/15 text-white/70 transition-colors hover:border-white hover:bg-white hover:text-[#cc0000]"
             title="Share"
           >
-            {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4" />}
+            {copied ? <Check className="h-4 w-4 text-white" /> : <Share2 className="h-4 w-4" />}
             {copied && (
-              <span className="absolute -bottom-8 right-0 text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded shadow whitespace-nowrap">
+              <span className="absolute -bottom-9 right-0 whitespace-nowrap bg-white px-2 py-0.5 text-[11px] font-medium text-[#cc0000] shadow">
                 Link copied!
               </span>
             )}
@@ -406,21 +453,29 @@ export function PhotoLightbox({
           {/* Fullscreen toggle */}
           <button
             onClick={toggleFullscreen}
-            className="p-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/10 transition hidden sm:inline-flex"
+            className="hidden h-9 w-9 items-center justify-center border border-white/15 text-white/70 transition-colors hover:border-white hover:bg-white hover:text-[#cc0000] sm:flex"
             title="Toggle Fullscreen"
           >
-            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </button>
 
           {/* Close button */}
           <button
             onClick={onClose}
-            className="p-2 rounded-lg text-slate-300 hover:text-white hover:bg-red-500/20 hover:text-red-300 transition ml-2"
+            className="ml-1 flex h-9 w-9 items-center justify-center border border-white/15 text-white/70 transition-colors hover:border-[#cc0000] hover:bg-[#cc0000] hover:text-white"
             title="Close Lightbox (Esc)"
           >
-            <X className="w-5 h-5" />
+            <X className="h-5 w-5" />
           </button>
         </div>
+      </div>
+
+      {/* Position rail — shows where you are in the set at a glance */}
+      <div className="relative z-20 h-[3px] w-full bg-white/10">
+        <div
+          className="h-full bg-[#cc0000] transition-all duration-300"
+          style={{ width: `${((currentIndex + 1) / Math.max(1, safePhotos.length)) * 100}%` }}
+        />
       </div>
 
       {/* Main Media Stage */}
@@ -429,7 +484,7 @@ export function PhotoLightbox({
         {/* Previous Navigation Arrow */}
         <button
           onClick={handlePrev}
-          className="absolute left-1.5 sm:left-6 top-1/2 -translate-y-1/2 z-30 p-2.5 sm:p-4 rounded-full bg-black/50 hover:bg-black/80 text-white/80 hover:text-white backdrop-blur-sm transition-all transform hover:scale-110 border border-white/10 min-w-[44px] min-h-[44px] flex items-center justify-center"
+          className="absolute left-1.5 top-1/2 z-30 flex min-h-[52px] min-w-[52px] -translate-y-1/2 items-center justify-center border border-white/15 bg-black/50 text-white/80 backdrop-blur-sm transition-colors hover:border-[#cc0000] hover:bg-[#cc0000] hover:text-white sm:left-6 sm:min-h-[60px] sm:min-w-[60px]"
           aria-label="Previous Media"
         >
           <ChevronLeft className="w-6 h-6 sm:w-8 sm:h-8" />
@@ -438,7 +493,7 @@ export function PhotoLightbox({
         {/* Next Navigation Arrow */}
         <button
           onClick={handleNext}
-          className="absolute right-1.5 sm:right-6 top-1/2 -translate-y-1/2 z-30 p-2.5 sm:p-4 rounded-full bg-black/50 hover:bg-black/80 text-white/80 hover:text-white backdrop-blur-sm transition-all transform hover:scale-110 border border-white/10 min-w-[44px] min-h-[44px] flex items-center justify-center"
+          className="absolute right-1.5 top-1/2 z-30 flex min-h-[52px] min-w-[52px] -translate-y-1/2 items-center justify-center border border-white/15 bg-black/50 text-white/80 backdrop-blur-sm transition-colors hover:border-[#cc0000] hover:bg-[#cc0000] hover:text-white sm:right-6 sm:min-h-[60px] sm:min-w-[60px]"
           aria-label="Next Media"
         >
           <ChevronRight className="w-6 h-6 sm:w-8 sm:h-8" />
@@ -589,11 +644,19 @@ export function PhotoLightbox({
 
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={activeMedia.highResUrl || activeMedia.directUrl || activeMedia.thumbnailLink || ''}
+              src={imageSources[Math.min(imageSrcIndex, imageSources.length - 1)]}
               alt={activeMedia.name || 'Photo'}
+              referrerPolicy="no-referrer"
               onLoad={() => setMediaLoaded(true)}
-              onError={() => setMediaLoaded(true)}
-              className={`max-h-[82vh] max-w-[92vw] object-contain rounded-lg shadow-2xl transition-opacity duration-300 ${
+              onError={() => {
+                // Walk to the next source; only give up once they are exhausted.
+                if (imageSrcIndex + 1 < imageSources.length) {
+                  setImageSrcIndex(imageSrcIndex + 1);
+                } else {
+                  setMediaLoaded(true);
+                }
+              }}
+              className={`max-h-[72vh] max-w-[90vw] rounded-[10px] object-contain shadow-[0_0_60px_rgba(0,0,0,0.75)] ring-1 ring-white/15 transition-opacity duration-300 ${
                 mediaLoaded ? 'opacity-100' : 'opacity-0'
               }`}
             />
@@ -602,35 +665,79 @@ export function PhotoLightbox({
 
       </div>
 
+      {/* Filmstrip — a window of neighbours around the current photo, so you can
+          see what is coming and jump straight to it instead of arrowing through.
+          Deliberately windowed: rendering all 4,000 thumbnails would stall. */}
+      {filmstrip.length > 1 && (
+        <div className="relative z-20 border-t border-white/10 bg-black/50 px-3 py-3 sm:px-6">
+          <div className="no-scrollbar flex items-center justify-center gap-2 overflow-x-auto">
+            {filmstrip.map(({ photo, index }) => {
+              const active = index === currentIndex;
+              return (
+                <button
+                  key={photo.id}
+                  onClick={() => onNavigate(index)}
+                  title={photo.name}
+                  aria-label={`Open ${photo.name}`}
+                  aria-current={active}
+                  className={`relative shrink-0 overflow-hidden rounded-[6px] transition-all ${
+                    active
+                      ? 'h-[62px] w-[82px] ring-2 ring-[#cc0000]'
+                      : 'h-[52px] w-[70px] opacity-55 ring-1 ring-white/20 hover:opacity-100 hover:ring-white/60'
+                  }`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo.thumbnailLink || `/api/thumb?id=${photo.id}&sz=w400`}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    referrerPolicy="no-referrer"
+                    className="h-full w-full object-cover"
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Bottom Info Bar */}
       {showDetails && (
-        <div className="bg-black/70 border-t border-white/10 px-4 sm:px-8 py-3 z-20 backdrop-blur-md">
-          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-slate-300">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-              <span className="flex items-center text-amber-400 font-semibold">
-                <Folder className="w-3.5 h-3.5 mr-1" />
+        <div className="relative z-20 border-t border-white/10 bg-black/60 px-4 py-3 backdrop-blur-md sm:px-8">
+          <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-3 text-[14px] text-white/70 sm:flex-row sm:items-center">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+              <span className="flex items-center text-white">
+                <Folder className="mr-1.5 h-4 w-4 text-[#cc0000]" />
                 {activeMedia.albumName || 'Gurukul'}
               </span>
               {formatMediaDate(activeMedia.createdTime) && (
-                <span className="flex items-center text-slate-400">
-                  <Calendar className="w-3.5 h-3.5 mr-1" />
+                <span className="flex items-center">
+                  <Calendar className="mr-1.5 h-4 w-4 text-[#cc0000]" />
                   {formatMediaDate(activeMedia.createdTime)}
                 </span>
               )}
               {activeMedia.category && (
-                <span className="flex items-center capitalize px-2 py-0.5 rounded bg-white/10 text-slate-200">
-                  <Tag className="w-3 h-3 mr-1 text-orange-400" />
+                <span className="flex items-center border border-white/20 px-2.5 py-0.5 capitalize text-white/90">
+                  <Tag className="mr-1.5 h-3.5 w-3.5 text-[#cc0000]" />
                   {activeMedia.category}
                 </span>
               )}
+              <span className="hidden items-center gap-1.5 text-white/40 lg:flex">
+                <kbd className="border border-white/20 px-1.5 py-0.5 text-[12px]">←</kbd>
+                <kbd className="border border-white/20 px-1.5 py-0.5 text-[12px]">→</kbd>
+                to browse
+                <kbd className="ml-2 border border-white/20 px-1.5 py-0.5 text-[12px]">Esc</kbd>
+                to close
+              </span>
             </div>
 
             {/* In-viewer direct download action button */}
             <button
               onClick={handleDownload}
-              className="inline-flex items-center space-x-1.5 text-xs text-orange-400 hover:text-orange-300 font-semibold underline"
+              className="inline-flex items-center gap-2 text-[14px] text-[#ff6b6b] transition-colors hover:text-white"
             >
-              <Download className="w-3.5 h-3.5" />
+              <Download className="h-4 w-4" />
               <span>Download file directly ({activeMedia.mediaType || (isAudio ? 'audio' : isVideo ? 'video' : 'image')})</span>
             </button>
           </div>
